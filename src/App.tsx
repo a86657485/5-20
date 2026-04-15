@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, FastForward, Timer, Settings, ArrowRight, RefreshCw, DoorOpen, Lightbulb, Megaphone } from 'lucide-react';
+import { Play, FastForward, Timer, Settings, ArrowRight, RefreshCw, DoorOpen, Lightbulb, Megaphone, Trash2, Plus } from 'lucide-react';
+import { ReflectionPhase } from './components/ReflectionPhase';
 
 // --- Types & Helpers ---
 type PenguinData = {
@@ -520,9 +521,16 @@ const Level2 = ({ onComplete }: any) => {
 };
 
 // --- Level 3: 成绩排序 (巩固练习) ---
+type BucketDef = {
+  id: number;
+  min: number;
+  max: number;
+  name: string;
+};
+
 const Level3 = ({ setNarratorText, onComplete }: any) => {
   const [penguins, setPenguins] = useState<PenguinData[]>(() => {
-    return Array.from({ length: 15 }).map((_, i) => {
+    return Array.from({ length: 50 }).map((_, i) => {
       const isHigh = Math.random() < 0.95;
       const weight = isHigh 
         ? Math.floor(Math.random() * 41) + 60 // 60-100 分
@@ -535,60 +543,95 @@ const Level3 = ({ setNarratorText, onComplete }: any) => {
       };
     });
   });
-  const [step, setStep] = useState<'drag' | 'sort' | 'board' | 'done'>('drag');
+  const [step, setStep] = useState<'intro' | 'setup' | 'classify' | 'sort' | 'board' | 'done'>('intro');
   const [calledBuckets, setCalledBuckets] = useState<number[]>([]);
   const queueRef = React.useRef<HTMLDivElement>(null);
 
-  const buckets = [
-    { id: 0, name: 'D (0-59)', min: 0, max: 59, color: 'bg-slate-200', borderColor: 'border-slate-400' },
-    { id: 1, name: 'C (60-69)', min: 60, max: 69, color: 'bg-red-200', borderColor: 'border-red-400' },
-    { id: 2, name: 'C+ (70-79)', min: 70, max: 79, color: 'bg-orange-200', borderColor: 'border-orange-400' },
-    { id: 3, name: 'B (80-84)', min: 80, max: 84, color: 'bg-yellow-200', borderColor: 'border-yellow-400' },
-    { id: 4, name: 'B+ (85-89)', min: 85, max: 89, color: 'bg-lime-200', borderColor: 'border-lime-400' },
-    { id: 5, name: 'A (90-94)', min: 90, max: 94, color: 'bg-green-200', borderColor: 'border-green-400' },
-    { id: 6, name: 'A+ (95-100)', min: 95, max: 100, color: 'bg-emerald-300', borderColor: 'border-emerald-500' },
-  ];
+  const [customBuckets, setCustomBuckets] = useState<BucketDef[]>([
+    { id: 0, min: 0, max: 59, name: '不及格' },
+    { id: 1, min: 60, max: 79, name: '及格' },
+    { id: 2, min: 80, max: 89, name: '良好' },
+    { id: 3, min: 90, max: 100, name: '优秀' },
+  ]);
+  const [setupError, setSetupError] = useState('');
 
   useEffect(() => {
-    if (step === 'drag') {
-      setNarratorText("巩固练习：期末考试成绩出来了！请你手动运用【桶排序】的原理，把企鹅们的成绩单拖到对应的等级区！");
+    if (step === 'intro') {
+      setNarratorText("突发任务！邓老师需要你的帮助！");
+    } else if (step === 'setup') {
+      setNarratorText("请你自行设计桶的数量和区间！至少需要4个桶，并且区间要合理覆盖0-100分哦！");
     }
   }, [step]);
 
-  const getBucketForScore = (score: number) => {
-    return buckets.find(b => score >= b.min && score <= b.max)?.id || 0;
+  const updateBucket = (id: number, field: keyof BucketDef, value: string | number) => {
+    setCustomBuckets(prev => prev.map(b => b.id === id ? { ...b, [field]: value } : b));
   };
 
-  const handleDragEnd = (penguin: PenguinData, info: any) => {
-    if (step !== 'drag') return;
-    
-    let bucketId: number | null = null;
-    const zones = document.querySelectorAll('[data-bucket-id]');
-    zones.forEach(zone => {
-      const rect = zone.getBoundingClientRect();
-      if (info.point.x >= rect.left && info.point.x <= rect.right &&
-          info.point.y >= rect.top && info.point.y <= rect.bottom) {
-        bucketId = parseInt(zone.getAttribute('data-bucket-id') || '0');
+  const addBucket = () => {
+    const newId = customBuckets.length > 0 ? Math.max(...customBuckets.map(b => b.id)) + 1 : 0;
+    setCustomBuckets(prev => [...prev, { id: newId, min: 0, max: 0, name: '新桶' }]);
+  };
+
+  const removeBucket = (id: number) => {
+    setCustomBuckets(prev => prev.filter(b => b.id !== id));
+  };
+
+  const finishSetup = () => {
+    if (customBuckets.length < 4) {
+      setSetupError('至少需要设置 4 个桶哦！');
+      return;
+    }
+    const sorted = [...customBuckets].sort((a, b) => a.min - b.min);
+    if (sorted[0].min > 0) {
+      setSetupError('区间必须从 0 分开始覆盖！');
+      return;
+    }
+    if (sorted[sorted.length - 1].max < 100) {
+      setSetupError('区间必须覆盖到 100 分！');
+      return;
+    }
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i].min > sorted[i].max) {
+        setSetupError('区间最小值不能大于最大值！');
+        return;
       }
-    });
-    
-    if (bucketId !== null) {
-      const correctBucketId = getBucketForScore(penguin.weight);
-      
-      if (bucketId === correctBucketId) {
-        setPenguins(prev => {
-          const next = prev.map(p => p.id === penguin.id ? { ...p, status: 'bucket', bucketIndex: bucketId } : p);
-          if (next.every(p => p.status === 'bucket')) {
-            setStep('sort');
-            setNarratorText("太棒了！所有成绩都分好等级了！现在请点击每个等级区，让里面的成绩从大到小排好序！");
-          } else {
-            setNarratorText(`放对啦！${penguin.weight}分 属于 ${buckets[bucketId].name}。继续加油！`);
-          }
-          return next;
-        });
-      } else {
-        setNarratorText(`放错啦！${penguin.weight}分 应该去 ${buckets[correctBucketId].name}！`);
+    }
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (sorted[i].max >= sorted[i+1].min) {
+        setSetupError('区间不能重叠！');
+        return;
       }
+      if (sorted[i].max + 1 < sorted[i+1].min) {
+        setSetupError('区间不能有空隙！');
+        return;
+      }
+    }
+    setSetupError('');
+    setStep('classify');
+    setNarratorText("桶设计完成！现在请点击每个桶上的喇叭，把对应分数的同学叫进桶里！");
+  };
+
+  const handleCallBucket = (bucketId: number) => {
+    if (step !== 'classify' || calledBuckets.includes(bucketId)) return;
+    
+    const bucket = customBuckets.find(b => b.id === bucketId);
+    if (!bucket) return;
+
+    setPenguins(prev => prev.map(p => {
+      if (p.status === 'pool' && p.weight >= bucket.min && p.weight <= bucket.max) {
+        return { ...p, status: 'bucket', bucketIndex: bucketId };
+      }
+      return p;
+    }));
+
+    const nextCalledBuckets = [...calledBuckets, bucketId];
+    if (nextCalledBuckets.length === customBuckets.length) {
+      setStep('sort');
+      setCalledBuckets([]);
+      setNarratorText("太棒了！所有成绩都分好等级了！现在请点击每个等级区，让里面的成绩从大到小排好序！");
+    } else {
+      setCalledBuckets(nextCalledBuckets);
+      setNarratorText(`很好！${bucket.name} 的同学已经进桶了。继续呼叫其他区！`);
     }
   };
 
@@ -610,56 +653,201 @@ const Level3 = ({ setNarratorText, onComplete }: any) => {
       });
     });
 
-    setCalledBuckets(prev => {
-      const next = [...prev, bucketId];
-      if (next.length === buckets.length) {
-        setStep('board');
-        setCalledBuckets([]);
-        setNarratorText("等级内排序完成！最后一步：请按成绩从高到低（从大到小），依次点击等级区，生成最终的成绩单！");
-      } else {
-        setNarratorText(`很好！${buckets[bucketId].name} 区的成绩已经排好序了。继续点击其他区！`);
-      }
-      return next;
-    });
+    const nextCalledBuckets = [...calledBuckets, bucketId];
+    if (nextCalledBuckets.length === customBuckets.length) {
+      setStep('board');
+      setCalledBuckets([]);
+      setNarratorText("等级内排序完成！最后一步：请按成绩从高到低（从大到小），依次点击等级区，生成最终的成绩单！");
+    } else {
+      setCalledBuckets(nextCalledBuckets);
+      const bucket = customBuckets.find(b => b.id === bucketId);
+      setNarratorText(`很好！${bucket?.name} 区的成绩已经排好序了。继续点击其他区！`);
+    }
   };
 
   const handleBoardBucket = (bucketId: number) => {
     if (step !== 'board') return;
     
-    // 从大到小，所以期望点击的是还没被叫到的、分数最高的桶（即索引最大的桶）
-    const remainingBuckets = buckets.filter(b => !calledBuckets.includes(b.id));
-    const expectedBucketId = remainingBuckets[remainingBuckets.length - 1].id;
+    // 从大到小，所以期望点击的是还没被叫到的、分数最高的桶
+    const remainingBuckets = customBuckets.filter(b => !calledBuckets.includes(b.id));
+    remainingBuckets.sort((a, b) => b.max - a.max);
+    const expectedBucketId = remainingBuckets[0].id;
     
     if (bucketId === expectedBucketId) {
       setCalledBuckets(prev => [...prev, bucketId]);
       setPenguins(prev => prev.map(p => p.bucketIndex === bucketId ? { ...p, status: 'queue' } : p));
       
-      if (calledBuckets.length + 1 === buckets.length) {
+      if (calledBuckets.length + 1 === customBuckets.length) {
         setStep('done');
-        setNarratorText("恭喜你！你已经完全掌握了【桶排序】！不仅能分流企鹅，还能整理成绩单！");
+        setNarratorText("恭喜你！你已经完全掌握了【桶排序】！不仅能分流企鹅，还能整理成绩单！下面是班级前十名！");
       } else {
-        setNarratorText(`很好！${buckets[bucketId].name} 的成绩已经加入成绩单。接下来该选哪个区？`);
+        const bucket = customBuckets.find(b => b.id === bucketId);
+        setNarratorText(`很好！${bucket?.name} 的成绩已经加入成绩单。接下来该选哪个区？`);
       }
     } else {
-      setNarratorText(`等一下！我们要从高分到低分排序，现在应该选 ${buckets[expectedBucketId].name} 哦！`);
+      const expectedBucket = customBuckets.find(b => b.id === expectedBucketId);
+      setNarratorText(`等一下！我们要从高分到低分排序，现在应该选 ${expectedBucket?.name} 哦！`);
     }
   };
 
   return (
     <div className="flex flex-col h-full relative z-10">
+      {/* 任务介绍弹窗 */}
+      <AnimatePresence>
+        {step === 'intro' && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-8"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: -20 }}
+              className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden border-4 border-blue-300"
+            >
+              <div className="bg-blue-500 p-6 text-white text-center">
+                <h2 className="text-3xl font-black">任务：拯救邓老师的期中成绩单！</h2>
+              </div>
+              <div className="p-8">
+                <p className="text-lg text-slate-700 mb-6 leading-relaxed">
+                  邓老师刚批改完期中考试的试卷，但是成绩单完全打乱了！面对这么多杂乱的分数，邓老师头都大了。请你运用刚刚学过的<strong className="text-blue-600">【桶排序】</strong>和<strong className="text-blue-600">【分治思想】</strong>，帮助邓老师高效地完成成绩排序吧！
+                </p>
+                
+                <div className="bg-slate-50 rounded-2xl p-6 border-2 border-slate-200 mb-8">
+                  <h3 className="font-bold text-slate-800 mb-4 text-xl flex items-center gap-2">
+                    <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded-lg text-sm">排序流程</span>
+                  </h3>
+                  <ul className="space-y-4">
+                    <li className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center shrink-0">1</div>
+                      <div>
+                        <div className="font-bold text-slate-800">设计桶并分发 (分)</div>
+                        <div className="text-slate-600 text-sm">自行设计桶的数量和区间，然后点击喇叭将成绩分发到对应的桶里。</div>
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-orange-500 text-white font-bold flex items-center justify-center shrink-0">2</div>
+                      <div>
+                        <div className="font-bold text-slate-800">桶内排序 (治)</div>
+                        <div className="text-slate-600 text-sm">点击每个等级区，让里面的成绩从大到小排好序。</div>
+                      </div>
+                    </li>
+                    <li className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-green-500 text-white font-bold flex items-center justify-center shrink-0">3</div>
+                      <div>
+                        <div className="font-bold text-slate-800">合并结果 (合)</div>
+                        <div className="text-slate-600 text-sm">按照从高分到低分的顺序，依次取出每个等级区的成绩，生成最终成绩单！</div>
+                      </div>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="flex justify-center">
+                  <button 
+                    onClick={() => setStep('setup')}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-12 py-4 rounded-full font-bold text-xl shadow-xl transition-transform hover:scale-105 flex items-center gap-2"
+                  >
+                    接受任务 <ArrowRight />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 设计桶弹窗 */}
+      <AnimatePresence>
+        {step === 'setup' && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-8"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: -20 }}
+              className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden border-4 border-blue-300 flex flex-col max-h-full"
+            >
+              <div className="bg-blue-500 p-6 text-white text-center shrink-0">
+                <h2 className="text-3xl font-black">第一步：设计你的“桶”</h2>
+                <p className="mt-2 opacity-90">请根据成绩分布，设置至少4个桶，并确保区间覆盖0-100分，且不重叠。</p>
+              </div>
+              <div className="p-8 overflow-y-auto flex-1">
+                <div className="space-y-4">
+                  {customBuckets.map((b, index) => (
+                    <div key={b.id} className="flex items-center gap-4 bg-slate-50 p-4 rounded-xl border-2 border-slate-200">
+                      <span className="font-bold text-slate-500 w-8">#{index + 1}</span>
+                      <input 
+                        type="text" 
+                        value={b.name} 
+                        onChange={e => updateBucket(b.id, 'name', e.target.value)}
+                        className="border-2 border-slate-300 rounded-lg px-3 py-2 w-32 focus:border-blue-500 outline-none"
+                        placeholder="桶名称"
+                      />
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="number" 
+                          value={b.min} 
+                          onChange={e => updateBucket(b.id, 'min', parseInt(e.target.value) || 0)}
+                          className="border-2 border-slate-300 rounded-lg px-3 py-2 w-24 focus:border-blue-500 outline-none"
+                        />
+                        <span className="text-slate-500 font-bold">-</span>
+                        <input 
+                          type="number" 
+                          value={b.max} 
+                          onChange={e => updateBucket(b.id, 'max', parseInt(e.target.value) || 0)}
+                          className="border-2 border-slate-300 rounded-lg px-3 py-2 w-24 focus:border-blue-500 outline-none"
+                        />
+                        <span className="text-slate-500 font-bold">分</span>
+                      </div>
+                      <button 
+                        onClick={() => removeBucket(b.id)}
+                        className="ml-auto text-red-500 hover:bg-red-100 p-2 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={20} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button 
+                  onClick={addBucket}
+                  className="mt-4 w-full py-3 border-2 border-dashed border-blue-400 text-blue-600 font-bold rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus size={20} /> 添加一个桶
+                </button>
+                {setupError && <div className="mt-4 text-red-500 font-bold text-center">{setupError}</div>}
+              </div>
+              <div className="p-6 bg-slate-50 border-t-2 border-slate-200 flex justify-center shrink-0">
+                <button 
+                  onClick={finishSetup}
+                  className="bg-blue-500 hover:bg-blue-600 text-white px-12 py-4 rounded-full font-bold text-xl shadow-xl transition-transform hover:scale-105"
+                >
+                  完成设计，开始分类！
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 成绩单池 */}
-      {step === 'drag' && (
-        <div className="flex-1 relative p-8 pr-[340px] flex flex-wrap content-start gap-4 justify-center overflow-hidden pt-12">
+      {(step === 'classify' || step === 'setup') && (
+        <div className="flex-1 relative p-4 pr-[340px] flex flex-wrap content-start gap-2 justify-center overflow-y-auto pt-12 max-h-[calc(100vh-300px)]">
           <AnimatePresence>
             {penguins.filter(p => p.status === 'pool').map(p => (
-              <Penguin key={p.id} penguin={p} onDragEnd={handleDragEnd} draggable={true} unit="分" />
+              <Penguin key={p.id} penguin={p} draggable={false} unit="分" />
             ))}
           </AnimatePresence>
         </div>
       )}
 
       {/* 动作按钮区 */}
-      <div className={`absolute left-1/2 -translate-x-1/2 flex gap-4 z-50 transition-all duration-1000 ${step === 'drag' ? 'bottom-72' : 'bottom-12'}`}>
+      <div className={`absolute left-1/2 -translate-x-1/2 flex gap-4 z-50 transition-all duration-1000 ${step === 'classify' ? 'bottom-72' : 'bottom-12'}`}>
         {step === 'done' && (
           <button onClick={onComplete} className="bg-purple-500 hover:bg-purple-600 text-white px-8 py-4 rounded-full font-bold text-xl shadow-xl flex items-center gap-2 transition-transform hover:scale-105 animate-bounce border-2 border-purple-400">
             进入最终测验 <ArrowRight />
@@ -669,12 +857,26 @@ const Level3 = ({ setNarratorText, onComplete }: any) => {
 
       {/* 等级区 (Buckets) */}
       <div className={`absolute left-0 right-0 flex gap-1 px-2 transition-all duration-1000 ease-in-out
-        ${step === 'drag' ? 'bottom-0 h-64 pb-4' : 'top-12 bottom-56'}
+        ${(step === 'classify' || step === 'intro' || step === 'setup') ? 'bottom-0 h-64 pb-4' : 'top-12 bottom-56'}
       `}>
-        {buckets.map(bucket => {
+        {customBuckets.sort((a, b) => a.min - b.min).map((bucket, index) => {
           const bucketPenguins = penguins.filter(p => p.status === 'bucket' && p.bucketIndex === bucket.id);
-          const isSorted = calledBuckets.includes(bucket.id);
+          const isSorted = step === 'sort' ? calledBuckets.includes(bucket.id) : false;
+          const isBoarded = step === 'board' ? calledBuckets.includes(bucket.id) : false;
+          const isCalled = step === 'classify' ? calledBuckets.includes(bucket.id) : false;
           
+          const colors = [
+            { bg: 'bg-red-100', border: 'border-red-400' },
+            { bg: 'bg-orange-100', border: 'border-orange-400' },
+            { bg: 'bg-yellow-100', border: 'border-yellow-400' },
+            { bg: 'bg-green-100', border: 'border-green-400' },
+            { bg: 'bg-blue-100', border: 'border-blue-400' },
+            { bg: 'bg-purple-100', border: 'border-purple-400' },
+            { bg: 'bg-pink-100', border: 'border-pink-400' },
+            { bg: 'bg-indigo-100', border: 'border-indigo-400' },
+          ];
+          const color = colors[index % colors.length];
+
           return (
             <div 
               key={bucket.id} 
@@ -684,14 +886,24 @@ const Level3 = ({ setNarratorText, onComplete }: any) => {
                 if (step === 'board') handleBoardBucket(bucket.id);
               }}
               className={`flex-1 border-4 flex flex-col items-center pt-8 relative transition-colors shadow-inner
-                ${step === 'drag' ? 'rounded-t-3xl' : 'rounded-2xl cursor-pointer hover:brightness-95'}
-                ${bucket.color} ${bucket.borderColor}
+                ${(step === 'classify' || step === 'intro' || step === 'setup') ? 'rounded-t-3xl' : 'rounded-2xl cursor-pointer hover:brightness-95'}
+                ${color.bg} ${color.border}
                 ${(step === 'sort' && isSorted) ? 'opacity-50 grayscale' : ''}
-                ${(step === 'board' && isSorted) ? 'opacity-0 pointer-events-none' : ''}
+                ${((step === 'board' || step === 'done') && isBoarded) ? 'opacity-0 pointer-events-none' : ''}
               `}
             >
-              <div className="absolute -top-4 bg-white px-2 py-1 rounded-full font-bold text-xs shadow-md border-2 border-slate-200 text-slate-800 whitespace-nowrap">
-                {bucket.name}
+              <div className="absolute -top-6 flex flex-col items-center gap-2 z-10">
+                {!isCalled && step === 'classify' && (
+                  <button 
+                    onClick={() => handleCallBucket(bucket.id)}
+                    className="absolute bottom-full mb-2 bg-yellow-400 hover:bg-yellow-300 text-yellow-900 p-3 rounded-full shadow-lg animate-bounce border-2 border-yellow-500 transition-transform hover:scale-110 active:scale-95"
+                  >
+                    <Megaphone size={24} fill="currentColor" />
+                  </button>
+                )}
+                <div className="bg-white px-2 py-1 rounded-full font-bold text-xs shadow-md border-2 border-slate-200 text-slate-800 whitespace-nowrap">
+                  {bucket.name} ({bucket.min}-{bucket.max})
+                </div>
               </div>
               <div className="flex flex-wrap justify-center gap-1 content-start w-full h-full overflow-hidden px-1 pt-2">
                 <AnimatePresence>
@@ -706,7 +918,7 @@ const Level3 = ({ setNarratorText, onComplete }: any) => {
                   点击排序
                 </div>
               )}
-              {step === 'board' && !isSorted && (
+              {step === 'board' && !isBoarded && (
                 <div className="absolute bottom-4 bg-white/80 px-3 py-1 rounded-full text-sm font-bold text-slate-700 animate-pulse">
                   点击取出
                 </div>
@@ -729,8 +941,15 @@ const Level3 = ({ setNarratorText, onComplete }: any) => {
               最终成绩单
             </div>
             <div className="flex gap-1 items-end h-full pb-4 px-8 min-w-max">
-              {penguins.filter(p => p.status === 'queue').sort((a, b) => b.weight - a.weight).map(p => (
-                <Penguin key={p.id} penguin={p} draggable={false} unit="分" />
+              {penguins.filter(p => p.status === 'queue').sort((a, b) => b.weight - a.weight).map((p, index) => (
+                <div key={p.id} className="relative">
+                  {index < 10 && step === 'done' && (
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-yellow-400 text-yellow-900 text-xs font-bold px-2 py-1 rounded-full shadow-md z-10 whitespace-nowrap">
+                      第{index + 1}名
+                    </div>
+                  )}
+                  <Penguin penguin={p} draggable={false} unit="分" />
+                </div>
               ))}
             </div>
           </motion.div>
@@ -1018,6 +1237,30 @@ export default function App() {
   const [level, setLevel] = useState(0);
   const [narratorText, setNarratorText] = useState("欢迎来到企鹅滑雪场！你可以把最轻的企鹅直接拖进缆车，也可以拖动相邻企鹅互相交换位置！你有3分钟！");
   const [showTestPanel, setShowTestPanel] = useState(false);
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState(false);
+  const [narratorMinimized, setNarratorMinimized] = useState(false);
+
+  const handleTestPanelClick = () => {
+    if (showTestPanel) {
+      setShowTestPanel(false);
+    } else {
+      setShowPasswordPrompt(true);
+      setPasswordInput("");
+      setPasswordError(false);
+    }
+  };
+
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordInput === '141710') {
+      setShowTestPanel(true);
+      setShowPasswordPrompt(false);
+    } else {
+      setPasswordError(true);
+    }
+  };
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-gradient-to-b from-sky-100 to-blue-50 font-sans select-none">
@@ -1026,18 +1269,40 @@ export default function App() {
       {/* 测试面板 (Debug Panel) */}
       <div className="fixed bottom-4 left-4 z-[9999]">
         <button 
-          onClick={() => setShowTestPanel(!showTestPanel)}
+          onClick={handleTestPanelClick}
           className="bg-slate-800 text-white px-3 py-1.5 rounded-full text-xs font-bold opacity-30 hover:opacity-100 transition-opacity shadow-lg"
         >
           🔧 测试面板
         </button>
         
+        {showPasswordPrompt && (
+          <div className="mt-2 bg-white/90 backdrop-blur p-4 rounded-xl shadow-2xl border-2 border-slate-200 flex flex-col gap-2 text-sm w-48">
+            <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-2">
+              <div className="font-bold text-slate-700 mb-1 border-b pb-1">请输入密码</div>
+              <input 
+                type="password" 
+                value={passwordInput}
+                onChange={e => setPasswordInput(e.target.value)}
+                className="border-2 border-slate-300 rounded px-2 py-1.5 text-slate-800 focus:outline-none focus:border-blue-500"
+                autoFocus
+                placeholder="密码"
+              />
+              {passwordError && <span className="text-red-500 text-xs font-bold">密码错误</span>}
+              <div className="flex gap-2 mt-1">
+                <button type="submit" className="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1.5 rounded font-bold flex-1 transition-colors">确认</button>
+                <button type="button" onClick={() => setShowPasswordPrompt(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2 py-1.5 rounded font-bold flex-1 transition-colors">取消</button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {showTestPanel && (
           <div className="mt-2 bg-white/90 backdrop-blur p-4 rounded-xl shadow-2xl border-2 border-slate-200 flex flex-col gap-2 text-sm w-48">
             <div className="font-bold text-slate-700 mb-1 border-b pb-1">快速跳转关卡</div>
             <button onClick={() => setLevel(0)} className="bg-slate-100 hover:bg-blue-100 text-slate-700 px-3 py-1.5 rounded text-left transition-colors">0. 开始界面</button>
             <button onClick={() => setLevel(1)} className="bg-slate-100 hover:bg-blue-100 text-slate-700 px-3 py-1.5 rounded text-left transition-colors">1. 第一关 (大塞车)</button>
             <button onClick={() => setLevel(2)} className="bg-slate-100 hover:bg-blue-100 text-slate-700 px-3 py-1.5 rounded text-left transition-colors">2. 第二关 (智能分流)</button>
+            <button onClick={() => setLevel(2.5)} className="bg-slate-100 hover:bg-blue-100 text-slate-700 px-3 py-1.5 rounded text-left transition-colors">2.5 流程图总结</button>
             <button onClick={() => setLevel(3)} className="bg-slate-100 hover:bg-blue-100 text-slate-700 px-3 py-1.5 rounded text-left transition-colors">3. 第三关 (成绩排序)</button>
             <button onClick={() => setLevel(4)} className="bg-slate-100 hover:bg-blue-100 text-slate-700 px-3 py-1.5 rounded text-left transition-colors">4. 第四关 (知识测验)</button>
             <button onClick={() => setLevel(5)} className="bg-slate-100 hover:bg-blue-100 text-slate-700 px-3 py-1.5 rounded text-left transition-colors">5. 第五关 (隐藏游戏)</button>
@@ -1048,26 +1313,54 @@ export default function App() {
       {level === 0 && <StartScreen onStart={() => setLevel(1)} />}
 
       {/* 顶部旁白 */}
-      {level > 0 && level !== 2 && level !== 4 && (
-        <div className="absolute top-6 right-6 flex flex-col gap-6 w-80 z-50 pointer-events-none">
-          <div className="bg-white p-5 rounded-2xl shadow-2xl border-4 border-blue-200 relative pointer-events-auto">
+      {level > 0 && level !== 2 && level !== 2.5 && level !== 4 && (
+        <motion.div 
+          drag
+          dragMomentum={false}
+          className="absolute top-6 right-6 flex flex-col gap-6 w-80 z-50 pointer-events-auto cursor-move"
+        >
+          <div className="bg-white p-5 rounded-2xl shadow-2xl border-4 border-blue-200 relative">
             <div className="absolute -left-4 top-6 w-0 h-0 border-t-[12px] border-t-transparent border-r-[16px] border-r-white border-b-[12px] border-b-transparent"></div>
             <div className="absolute -left-5 top-6 w-0 h-0 border-t-[12px] border-t-transparent border-r-[16px] border-r-blue-200 border-b-[12px] border-b-transparent -z-10"></div>
             
-            <div className="flex items-center gap-3 mb-3 pb-3 border-b-2 border-slate-100">
-              <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold shadow-inner">站长</div>
-              <div className="font-black text-blue-900 text-lg">通讯录</div>
+            <div className="flex items-center justify-between mb-3 pb-3 border-b-2 border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold shadow-inner">站长</div>
+                <div className="font-black text-blue-900 text-lg">通讯录 <span className="text-xs text-slate-400 font-normal">(可拖动)</span></div>
+              </div>
+              <button 
+                onClick={() => setNarratorMinimized(!narratorMinimized)}
+                className="text-slate-400 hover:text-blue-500 transition-colors p-1"
+                title={narratorMinimized ? "展开" : "收起"}
+              >
+                {narratorMinimized ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 14 12 22 20 14"></polyline><polyline points="4 2 12 10 20 2"></polyline></svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 10 12 2 20 10"></polyline><polyline points="4 22 12 14 20 22"></polyline></svg>
+                )}
+              </button>
             </div>
-            <p className="text-base text-slate-700 leading-relaxed font-medium">
-              {narratorText}
-            </p>
+            
+            <AnimatePresence>
+              {!narratorMinimized && (
+                <motion.p 
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="text-base text-slate-700 leading-relaxed font-medium cursor-text overflow-hidden"
+                >
+                  {narratorText}
+                </motion.p>
+              )}
+            </AnimatePresence>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* 关卡渲染 */}
       {level === 1 && <Level1 onComplete={() => setLevel(2)} setNarratorText={setNarratorText} />}
-      {level === 2 && <Level2 onComplete={() => setLevel(3)} setNarratorText={setNarratorText} />}
+      {level === 2 && <Level2 onComplete={() => setLevel(2.5)} setNarratorText={setNarratorText} />}
+      {level === 2.5 && <ReflectionPhase onComplete={() => setLevel(3)} />}
       {level === 3 && <Level3 onComplete={() => setLevel(4)} setNarratorText={setNarratorText} />}
       {level === 4 && <Level4 onComplete={() => setLevel(5)} setNarratorText={setNarratorText} />}
       {level === 5 && <MiniGame setNarratorText={setNarratorText} />}
